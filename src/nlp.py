@@ -1,7 +1,10 @@
 """NLTK VADER sentiment + transparent keyword topic rules (English only)."""
+import zipfile
+
 import nltk
 import pandas as pd
 from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.sentiment.vader import VaderConstants
 
 from .config import NLTK_DIR
 from .data_loader import load_topic_keywords
@@ -10,25 +13,62 @@ LABELS = ["negative", "neutral", "positive"]
 _analyser = None
 
 
+def _read_lexicon_text():
+    """Read the supplied VADER lexicon straight from the repo (no NLTK path lookup,
+    no download). Accepts the zip or an extracted vader_lexicon.txt anywhere in the repo."""
+    root = NLTK_DIR.parent
+    candidates = [NLTK_DIR / "sentiment" / "vader_lexicon.zip",
+                  NLTK_DIR / "sentiment" / "vader_lexicon" / "vader_lexicon.txt"]
+    candidates += sorted(p for p in root.rglob("vader_lexicon*")
+                         if p.suffix in (".zip", ".txt") and ".venv" not in p.parts)
+    for p in candidates:
+        if not p.is_file():
+            continue
+        try:
+            if p.suffix == ".zip":
+                with zipfile.ZipFile(p) as z:
+                    name = next(n for n in z.namelist() if n.endswith("vader_lexicon.txt"))
+                    return z.read(name).decode("utf-8")
+            return p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+    return None
+
+
+def _analyser_from_text(text):
+    """Build NLTK's SentimentIntensityAnalyzer from the lexicon text (same scoring)."""
+    sia = SentimentIntensityAnalyzer.__new__(SentimentIntensityAnalyzer)
+    sia.lexicon_file = text.strip("\n")
+    sia.lexicon = sia.make_lex_dict()
+    sia.constants = VaderConstants()
+    return sia
+
+
 def _get_analyser():
-    """Use the lexicon shipped in nltk_data/ (no download at startup).
-    Downloads only as a last resort if the folder was not copied."""
+    """1) supplied lexicon in the repo, 2) normal NLTK lookup, 3) one download as last resort."""
     global _analyser
-    if _analyser is None:
-        nltk.data.path.insert(0, str(NLTK_DIR))
-        try:
-            nltk.data.find("sentiment/vader_lexicon.zip")
-        except LookupError:
-            try:
-                nltk.data.find("sentiment/vader_lexicon")
-            except LookupError:
-                nltk.download("vader_lexicon", download_dir=str(NLTK_DIR), quiet=True)
-        try:
-            _analyser = SentimentIntensityAnalyzer()
-        except LookupError as e:
-            raise RuntimeError("VADER lexicon not found. Copy the supplied nltk_data/ folder "
-                               "(sentiment/vader_lexicon.zip) into the repo.") from e
-    return _analyser
+    if _analyser is not None:
+        return _analyser
+    text = _read_lexicon_text()
+    if text:
+        _analyser = _analyser_from_text(text)
+        return _analyser
+    nltk.data.path.insert(0, str(NLTK_DIR))
+    try:
+        _analyser = SentimentIntensityAnalyzer()
+        return _analyser
+    except LookupError:
+        pass
+    try:
+        nltk.download("vader_lexicon", download_dir=str(NLTK_DIR), quiet=True)
+        _analyser = SentimentIntensityAnalyzer()
+        return _analyser
+    except Exception as e:
+        found = sorted(str(p.relative_to(NLTK_DIR.parent)) for p in NLTK_DIR.rglob("*")) \
+            if NLTK_DIR.exists() else "folder missing"
+        raise RuntimeError(
+            "VADER lexicon not found. Upload the supplied nltk_data/sentiment/vader_lexicon.zip "
+            f"to the repo. Looked in: {NLTK_DIR} (contains: {found})") from e
 
 
 def is_empty(text) -> bool:
