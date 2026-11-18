@@ -28,20 +28,41 @@ def get_data():
     return dl.load_main(), dl.load_meta()
 
 
-@st.cache_resource          # trusted, small model files - loaded once
-def get_tree():
+def file_stamp(path):
+    """Size + modified time of a model file. Used as the cache key, so a NEW model file
+    uploaded to GitHub is loaded automatically instead of the old one kept in memory."""
+    try:
+        s = path.stat()
+        return f"{s.st_size}-{s.st_mtime_ns}"
+    except FileNotFoundError:
+        return "missing"
+
+
+@st.cache_resource(max_entries=1)          # trusted model files - loaded once per file version
+def get_tree(stamp):
     return tabular.load_model() if tabular.MODEL_PATH.exists() else None
 
 
-@st.cache_resource
-def get_clusters():
+@st.cache_resource(max_entries=1)
+def get_clusters(stamp):
     return clustering.load_model() if clustering.MODEL_PATH.exists() else None
 
 
-@st.cache_resource
-def get_cnn():
+@st.cache_resource(max_entries=1)
+def get_cnn(stamp):
     from src import image_model
     return image_model.load_model()
+
+
+def describe_cnn(model):
+    parts = []
+    for layer in model.layers:
+        name = layer.__class__.__name__
+        if name == "Conv2D":
+            parts.append(f"Conv2D({layer.filters})")
+        elif name == "Dense":
+            parts.append(f"Dense({layer.units})")
+    return " → ".join(parts) + f" · {model.count_params():,} parameters"
 
 
 @st.cache_data
@@ -61,7 +82,8 @@ except FileNotFoundError as e:
 num, cat, features, target, cluster_features = dl.feature_lists(meta)
 schema = validation.build_schema(meta, main_df)
 train_df, val_df, test_df = dl.get_splits(main_df)
-tree, kmeans = get_tree(), get_clusters()
+tree = get_tree(file_stamp(tabular.MODEL_PATH))
+kmeans = get_clusters(file_stamp(clustering.MODEL_PATH))
 if tree is None or kmeans is None:
     st.warning("Trained models not found in `models/`. Run the Colab notebook (Parts 2-4) once "
                "and copy its `models/` folder here.")
@@ -239,7 +261,7 @@ with tabs[2]:
         try:
             from PIL import Image
             from src import image_model
-            cnn = get_cnn()
+            cnn = get_cnn(file_stamp(image_model.MODEL_PATH))
         except ImportError:
             cnn = None
             st.error("TensorFlow is not installed. Keep `tensorflow-cpu` in requirements.txt.")
@@ -247,6 +269,7 @@ with tabs[2]:
             cnn = None
             st.error(f"Could not load the CNN: {e}")
         if cnn is not None:
+            st.caption(f"Model in use: {describe_cnn(cnn)}")
             classes = [str(c) for c in meta.get("image_classes", list(range(10)))]
             samples = dl.list_sample_images()
             sources = (["Supplied sample image"] if samples else []) + ["Upload PNG/JPG"]
@@ -421,3 +444,6 @@ st.sidebar.markdown("### About")
 st.sidebar.markdown("Decision Tree · KMeans · small CNN · NLTK VADER · Groq (optional).  \n"
                     "Free tools only. Works fully offline without a Groq key.")
 st.sidebar.markdown(f"Models folder: `{'ok' if tree is not None else 'missing'}`")
+if st.sidebar.button("Reload models", help="Clear the model cache and load the files in models/ again"):
+    st.cache_resource.clear()
+    st.rerun()
