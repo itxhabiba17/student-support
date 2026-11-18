@@ -1,0 +1,3 @@
+model,accuracy,macro_f1,class1_precision,class1_recall
+Decision tree (test),0.917,0.907,0.857,0.9
+Baseline (test),0.667,0.4,0.0,0.0

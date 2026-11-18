@@ -1,0 +1,6 @@
+Offline summary (fixed template, not AI-generated)
+- Support prediction: May need academic support - suggest a conversation for the teacher to review (probability of label 1 = 100%; G1 = 5/20, G2 = 6/20). A teacher must review this.
+- Learning profile: group 1 - lower G1 (9.09), lower G2 (9.09), about average study time (2.03), about average past failures (0.17). Learning profile only; not a permanent label.
+- Comment sentiment (30 non-empty): 11 positive, 10 neutral, 9 negative.
+- Topics: other (9), practice (9), lesson (8), facilities (4)
+Limitation: small dataset; associations, not causes. Decision support only.
